@@ -248,27 +248,51 @@ impl eframe::App for YtdlApp {
                 ui.radio_value(&mut self.state.format, DownloadFormat::MP3, mp3_label);
             });
             
-            // Download directory selection
-            // Download to
-            ui.horizontal(|ui| {
+            // Download directory selection with improved UI
+            ui.vertical(|ui| {
                 ui.label(self.localizer.lookup_single_language("download-to", None)
                     .unwrap_or_else(|| "Download to:".to_string()));
                 
-                // Directory input field
-                let response = egui::TextEdit::singleline(&mut self.state.download_dir)
-                    .hint_text("Select download directory")
-                    .desired_width(ui.available_width() - 100.0)
-                    .show(ui);
-                
-                // Browse button
-                if ui.button(self.localizer.lookup_single_language("browse-button", None)
-                    .unwrap_or_else(|| "Browse...".to_string())).clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .set_directory(Path::new(&self.state.download_dir).parent().unwrap_or_else(|| Path::new(".")))
-                        .pick_folder() {
-                        self.state.download_dir = path.to_string_lossy().to_string();
+                // Container for the input and button
+                ui.horizontal(|ui| {
+                    // Directory input field with frame
+                    egui::Frame::none()
+                        .fill(ui.visuals().extreme_bg_color)
+                        .rounding(4.0)
+                        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+                        .show(ui, |ui| {
+                            ui.set_min_height(36.0);
+                            let response = ui.add_sized(
+                                [ui.available_width() - 100.0, 36.0],
+                                egui::TextEdit::singleline(&mut self.state.download_dir)
+                                    .hint_text("Select download directory")
+                                    .frame(false)
+                                    .margin(egui::vec2(8.0, 8.0))
+                            );
+                            response
+                        });
+                    
+                    // Browse button with matching style
+                    let button = egui::Button::new(
+                        egui::RichText::new(
+                            self.localizer.lookup_single_language("browse-button", None)
+                                .unwrap_or_else(|| "Browse...".to_string())
+                        )
+                        .size(14.0)
+                    )
+                    .min_size(egui::vec2(100.0, 36.0))
+                    .frame(true)
+                    .fill(ui.visuals().widgets.inactive.bg_fill)
+                    .rounding(4.0);
+                    
+                    if ui.add(button).clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .set_directory(Path::new(&self.state.download_dir).parent().unwrap_or_else(|| Path::new(".")))
+                            .pick_folder() {
+                            self.state.download_dir = path.to_string_lossy().to_string();
+                        }
                     }
-                }
+                });
             });
             
             ui.add_space(20.0);

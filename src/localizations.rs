@@ -36,6 +36,8 @@ impl Localizations {
         en.insert("update-button", "Update yt-dlp");
         en.insert("download-format", "Download as:");
         en.insert("format-mp4", "MP4 (Video)");
+        en.insert("download-to", "Download to:");
+        en.insert("browse-button", "Browse...");
         en.insert("format-mp3", "MP3 (Audio only)");
         en.insert("url-label", "Video URL:");
         en.insert("url-placeholder", "Enter video URL");
@@ -56,6 +58,8 @@ impl Localizations {
         es.insert("update-button", "Actualizar yt-dlp");
         es.insert("download-format", "Descargar como:");
         es.insert("format-mp4", "MP4 (Video)");
+        es.insert("download-to", "Descargar a:");
+        es.insert("browse-button", "Navegar...");
         es.insert("format-mp3", "MP3 (Solo audio)");
         es.insert("url-label", "URL del video:");
         es.insert("url-placeholder", "Ingrese la URL del video");
