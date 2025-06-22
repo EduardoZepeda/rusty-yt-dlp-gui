@@ -2,7 +2,9 @@ use eframe::egui;
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::thread;
 use std::process::{Command, Stdio};
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
+use rfd::FileDialog;
+use dirs;
 
 mod localizations;
 use localizations::Localizations;
@@ -20,17 +22,18 @@ impl Default for DownloadFormat {
 }
 
 #[derive(Default)]
-struct AppState {
-    url: String,
-    format: DownloadFormat,
-    status: String,
-    is_downloading: bool,
-    progress: f32,
-    output_path: Option<PathBuf>,
-    error: Option<String>,
-    download_speed: String,
-    eta: String,
-    last_error: Option<String>,
+pub struct AppState {
+    pub url: String,
+    pub format: DownloadFormat,
+    pub is_downloading: bool,
+    pub progress: f32,
+    pub status: String,
+    pub error: Option<String>,
+    pub last_error: Option<String>,
+    pub download_speed: String,
+    pub eta: String,
+    pub output_path: Option<PathBuf>,
+    pub download_dir: String,
 }
 
 struct YtdlApp {
@@ -166,6 +169,26 @@ impl eframe::App for YtdlApp {
         // Check for status updates
         if let Some(receiver) = &mut self.status_receiver {
             while let Ok((is_error, message)) = receiver.try_recv() {
+                // Check if this is a progress update (contains %)
+                if message.contains('%') {
+                    if let Some(percent_str) = message.split('%').next() {
+                        if let Ok(percent) = percent_str.trim().parse::<f32>() {
+                            self.state.progress = percent / 100.0;
+                            // Extract speed and ETA from the message
+                            let parts: Vec<&str> = message.split_whitespace().collect();
+                            if parts.len() >= 4 && parts[2] == "ETA:" {
+                                self.state.download_speed = parts[1].to_string();
+                                self.state.eta = parts[3].to_string();
+                            }
+                            self.state.status = message.clone();
+                            // Request repaint to update progress
+                            ctx.request_repaint();
+                            continue;
+                        }
+                    }
+                }
+                
+                // If not a progress update, handle as status message
                 self.state.is_downloading = false;
                 
                 if is_error {
@@ -225,6 +248,29 @@ impl eframe::App for YtdlApp {
                 ui.radio_value(&mut self.state.format, DownloadFormat::MP3, mp3_label);
             });
             
+            // Download directory selection
+            // Download to
+            ui.horizontal(|ui| {
+                ui.label(self.localizer.lookup_single_language("download-to", None)
+                    .unwrap_or_else(|| "Download to:".to_string()));
+                
+                // Directory input field
+                let response = egui::TextEdit::singleline(&mut self.state.download_dir)
+                    .hint_text("Select download directory")
+                    .desired_width(ui.available_width() - 100.0)
+                    .show(ui);
+                
+                // Browse button
+                if ui.button(self.localizer.lookup_single_language("browse-button", None)
+                    .unwrap_or_else(|| "Browse...".to_string())).clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .set_directory(Path::new(&self.state.download_dir).parent().unwrap_or_else(|| Path::new(".")))
+                        .pick_folder() {
+                        self.state.download_dir = path.to_string_lossy().to_string();
+                    }
+                }
+            });
+            
             ui.add_space(20.0);
             
             // Status in a frame
@@ -248,14 +294,10 @@ impl eframe::App for YtdlApp {
                         // Progress bar
                         if self.state.is_downloading {
                             ui.add_space(10.0);
-                            ui.add(
-                                egui::ProgressBar::new(self.state.progress as f32 / 100.0)
-                                    .show_percentage()
-                                    .text(format!("{} - ETA: {}", 
-                                        self.state.download_speed,
-                                        self.state.eta
-                                    ))
-                            );
+                            let progress_bar = egui::ProgressBar::new(self.state.progress as f32)
+                                .show_percentage()
+                                .text(&self.state.status);
+                            ui.add(progress_bar);
                         }
                         
                         // Output path
@@ -347,14 +389,33 @@ impl YtdlApp {
             }
         };
 
+        // Validate download directory
+        let download_dir = if self.state.download_dir.trim().is_empty() {
+            std::env::current_dir().unwrap_or_default()
+        } else {
+            PathBuf::from(&self.state.download_dir)
+        };
+
+        if !download_dir.exists() {
+            if let Err(e) = std::fs::create_dir_all(&download_dir) {
+                self.state.status = format!("Error creating directory: {}", e);
+                self.state.last_error = Some(format!("Directory error: {}", e));
+                return;
+            }
+        }
+
         // Reset state
         self.state.is_downloading = true;
         self.state.progress = 0.0;
         self.state.download_speed = String::new();
         self.state.eta = String::new();
         self.state.last_error = None;
+        self.state.error = None;
+        self.state.output_path = None;
         self.state.status = self.localizer.lookup_single_language("status-downloading", None)
             .unwrap_or_else(|| "Preparing download...".to_string());
+        
+        println!("Starting download to: {}", download_dir.display()); // Debug log
         
         // Create a channel for status updates
         let (tx, rx) = std::sync::mpsc::channel();
@@ -362,6 +423,7 @@ impl YtdlApp {
         // Clone the necessary data for the thread
         let url_clone = url.clone();
         let format = self.state.format;
+        let download_dir_clone = download_dir.clone();
         
         // Spawn a new thread for the download
         thread::spawn(move || {
@@ -369,14 +431,19 @@ impl YtdlApp {
             let mut command = std::process::Command::new(ytdlp_cmd);
             
             // Common arguments
+            let output_template = download_dir_clone.join("%(title)s.%(ext)s").to_string_lossy().to_string();
+            println!("Output template: {}", output_template); // Debug log
+            
             command
                 .arg("--newline")
-                .arg("--no-simulate")
                 .arg("--progress")
+                .arg("--no-simulate")
                 .arg("--progress-template")
                 .arg("PROGRESS:%(progress._percent_str)s|%(progress.speed)s|%(progress.eta)s")
                 .arg("-o")
-                .arg("%(title)s.%(ext)s");
+                .arg(&output_template);
+                
+            println!("Command: {:?}", command); // Debug log
             
             // Add format-specific arguments
             match format {
@@ -423,7 +490,7 @@ impl YtdlApp {
                                         let speed = parts[1].to_string();
                                         let eta = parts[2].to_string();
                                         
-                                        if let Err(e) = tx_err.send((false, format!("{}% - {} ETA: {}", percent, speed, eta))) {
+                                        if let Err(e) = tx_err.send((false, format!("{:.1}% - {} ETA: {}", percent, speed, eta))) {
                                             eprintln!("Failed to send progress update: {}", e);
                                             break;
                                         }
@@ -438,15 +505,25 @@ impl YtdlApp {
 
             let result = match output {
                 Ok(output) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    
+                    println!("Command status: {}", output.status);
+                    println!("stdout: {}", stdout);
+                    println!("stderr: {}", stderr);
+                    
                     if output.status.success() {
-                        let stdout = String::from_utf8_lossy(&output.stdout);
                         if let Some(title) = stdout.lines().find(|line| !line.starts_with("PROGRESS:")) {
                             (false, format!("Downloaded: {}", title.trim()))
                         } else {
                             (false, "Download completed successfully!".to_string())
                         }
                     } else {
-                        let error_msg = String::from_utf8_lossy(&output.stderr);
+                        let error_msg = if stderr.is_empty() {
+                            format!("Command failed with status: {}", output.status)
+                        } else {
+                            stderr.to_string()
+                        };
                         (true, format!("Download failed: {}", error_msg))
                     }
                 }
@@ -472,11 +549,26 @@ impl YtdlApp {
 }
 
 fn main() -> eframe::Result<()> {
+    // Set default download directory to user's downloads folder
+    let default_download_dir = dirs::download_dir()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+        .to_string_lossy()
+        .to_string();
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([600.0, 500.0])  // Larger initial window size
-            .with_min_inner_size([500.0, 400.0])
+            .with_inner_size([700.0, 550.0])  // Slightly larger window to fit directory selection
+            .with_min_inner_size([600.0, 450.0])
             .with_title("YouTube Downloader"),
+        ..Default::default()
+    };
+
+    // Initialize app state with default download directory
+    let app = YtdlApp {
+        state: AppState {
+            download_dir: default_download_dir,
+            ..Default::default()
+        },
         ..Default::default()
     };
 
@@ -486,7 +578,7 @@ fn main() -> eframe::Result<()> {
         Box::new(|cc| {
             // Set light theme
             cc.egui_ctx.set_visuals(egui::Visuals::light());
-            Box::new(YtdlApp::new())
+            Box::new(app)
         }),
     )
 }

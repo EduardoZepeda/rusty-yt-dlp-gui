@@ -11,6 +11,8 @@ anyhow = "1.0.79"
 log = "0.4.20"
 unic-langid = { version = "0.9.4", features = ["macros"] }
 which = "4.4.0"
+rfd = "0.11.4"
+dirs = "5.0.1"
 
 # For video downloading
 # Note: yt-dlp needs to be installed on the system
