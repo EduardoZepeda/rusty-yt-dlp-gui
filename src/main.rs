@@ -1,11 +1,13 @@
 use eframe::egui;
-use i18n_embed::DesktopLanguageRequester;
+use std::sync::mpsc::{self, Sender, Receiver};
+use std::thread;
 use std::process::{Command, Stdio};
 use std::path::PathBuf;
-use std::thread;
 
-// Format selection
-#[derive(PartialEq, Clone, Copy)]
+mod localizations;
+use localizations::Localizations;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DownloadFormat {
     MP4,
     MP3,
@@ -17,155 +19,309 @@ impl Default for DownloadFormat {
     }
 }
 
-// App state
 #[derive(Default)]
 struct AppState {
     url: String,
+    format: DownloadFormat,
     status: String,
     is_downloading: bool,
-    output_path: Option<PathBuf>,
     progress: f32,
+    output_path: Option<PathBuf>,
+    error: Option<String>,
     download_speed: String,
     eta: String,
     last_error: Option<String>,
-    format: DownloadFormat,
 }
-
-mod localizations;
-use localizations::Localizations;
 
 struct YtdlApp {
     state: AppState,
     localizer: Localizations,
-    status_receiver: Option<std::sync::mpsc::Receiver<(bool, String)>>,
+    status_sender: Sender<(bool, String)>,
+    status_receiver: Option<Receiver<(bool, String)>>,
+}
+
+impl Default for YtdlApp {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl YtdlApp {
     fn new() -> Self {
-        let mut localizer = Localizations::new();
+        // Create a new channel for status updates
+        let (tx, rx) = mpsc::channel();
         
-        // This will load the user's preferred language
-        let requested_languages = DesktopLanguageRequester::requested_languages();
-        if let Some(lang) = requested_languages.first() {
-            let _ = localizer.select(lang);
-        }
+        let localizer = Localizations::new();
         
         let mut state = AppState::default();
         state.status = localizer.lookup_single_language("status-ready", None)
             .unwrap_or_else(|| "Ready".to_string());
-        
+            
         Self {
             state,
             localizer,
-            status_receiver: None,
+            status_sender: tx,
+            status_receiver: Some(rx),
         }
+    }
+    
+    fn start_download(&mut self, ctx: &egui::Context) {
+        if self.state.is_downloading {
+            return;
+        }
+        
+        if self.state.url.trim().is_empty() {
+            self.state.error = Some("Please enter a URL".to_string());
+            self.state.last_error = Some("No URL provided".to_string());
+            return;
+        }
+        
+        self.state.is_downloading = true;
+        self.state.progress = 0.0;
+        self.state.error = None;
+        self.state.last_error = None;
+        self.state.download_speed = String::new();
+        self.state.eta = String::new();
+        self.state.status = self.localizer.lookup_single_language("status-downloading", None)
+            .unwrap_or_else(|| "Downloading...".to_string());
+        
+        let format = self.state.format;
+        let url = self.state.url.clone();
+        let tx = self.status_sender.clone();
+        
+        thread::spawn(move || {
+            let output = Command::new("yt-dlp")
+                .arg("--newline")
+                .arg("--progress")
+                .arg("--no-check-certificate")
+                .arg(if matches!(format, DownloadFormat::MP3) { "-x" } else { "-f" })
+                .arg(if matches!(format, DownloadFormat::MP3) { "--audio-format mp3 --audio-quality 0" } 
+                     else { "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" })
+                .arg(&url)
+                .output();
+            
+            match output {
+                Ok(output) => {
+                    if output.status.success() {
+                        let _ = tx.send((false, "Download complete".to_string()));
+                    } else {
+                        let error_msg = String::from_utf8_lossy(&output.stderr);
+                        let _ = tx.send((true, error_msg.to_string()));
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send((true, e.to_string()));
+                }
+            }
+        });
+        
+        // Request a repaint to update the UI
+        ctx.request_repaint();
+    }
+    
+    fn update_ytdlp(&mut self, ctx: &egui::Context) {
+        if self.state.is_downloading {
+            return;
+        }
+        
+        self.state.is_downloading = true;
+        self.state.progress = 0.0;
+        self.state.error = None;
+        self.state.last_error = None;
+        self.state.status = self.localizer.lookup_single_language("status-updating", None)
+            .unwrap_or_else(|| "Updating yt-dlp...".to_string());
+        
+        let tx = self.status_sender.clone();
+        
+        thread::spawn(move || {
+            let output = Command::new("yt-dlp")
+                .arg("-U")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output();
+            
+            match output {
+                Ok(output) => {
+                    if output.status.success() {
+                        let _ = tx.send((false, "yt-dlp updated successfully".to_string()));
+                    } else {
+                        let error_msg = String::from_utf8_lossy(&output.stderr);
+                        let _ = tx.send((true, format!("Failed to update yt-dlp: {}", error_msg)));
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send((true, format!("Failed to run yt-dlp: {}", e)));
+                }
+            }
+        });
+        
+        // Request a repaint to update the UI
+        ctx.request_repaint();
     }
 }
 
 impl eframe::App for YtdlApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Check for download completion
-        if let Some(rx) = &mut self.status_receiver {
-            if let Ok((success, message)) = rx.try_recv() {
+        // Check for status updates
+        if let Some(receiver) = &mut self.status_receiver {
+            if let Ok((is_error, message)) = receiver.try_recv() {
                 self.state.is_downloading = false;
-                if success {
-                    self.state.status = message;
-                    self.state.last_error = None;
+                self.state.progress = 1.0;
+                
+                if is_error {
+                    self.state.error = Some(message);
                 } else {
-                    self.state.status = "Download failed".to_string();
-                    self.state.last_error = Some(message);
+                    self.state.status = message;
                 }
-                self.status_receiver = None;
+                
+                // Request another repaint to show the final status
+                ctx.request_repaint();
             }
         }
         
-        // Update progress if downloading
-        if self.state.is_downloading {
-            // In a real app, you would parse the progress from yt-dlp output
-            // For now, we'll just simulate some progress
-            self.state.progress = (self.state.progress + 1.0).min(100.0);
-        }
-        // Get the language loader
-        let loader = self.localizer.language_loader();
-        
-        // Get the localized strings
-        let app_title = loader.lookup_single_language("app-title", None)
-            .unwrap_or_else(|| "YouTube Downloader".to_string());
-        let url_label = loader.lookup_single_language("url-label", None)
-            .unwrap_or_else(|| "URL:".to_string());
-        let url_placeholder = loader.lookup_single_language("url-placeholder", None)
-            .unwrap_or_else(|| "Enter video URL".to_string());
-        let button_text = loader.lookup_single_language("download-button", None)
-            .unwrap_or_else(|| "Download".to_string());
-        
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading(&app_title);
-            
+            ui.heading(self.localizer.lookup_single_language("app-title", None)
+                .unwrap_or_else(|| "YouTube Downloader".to_string()));
+                
             ui.add_space(20.0);
+            
+            // URL input with larger size and border
+            ui.label(self.localizer.lookup_single_language("url-label", None)
+                .unwrap_or_else(|| "Video URL:".to_string()));
+                
+            let response = egui::Frame::group(ui.style())
+                .fill(egui::Color32::from_rgb(250, 250, 250))
+                .stroke(egui::Stroke::new(1.0, egui::Color32::LIGHT_GRAY))
+                .rounding(4.0)
+                .show(ui, |ui| {
+                    ui.add_sized(
+                        [ui.available_width(), 40.0], // Larger height for the input
+                        egui::TextEdit::singleline(&mut self.state.url)
+                            .hint_text(self.localizer.lookup_single_language("url-placeholder", None)
+                                .unwrap_or_else(|| "Enter video URL".to_string()))
+                            .text_style(egui::TextStyle::Body)
+                            .font(egui::FontId::proportional(16.0))
+                    )
+                }).inner;
+            
+            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                self.start_download(ctx);
+            }
+            
+            ui.add_space(10.0);
             
             // Format selection
             ui.horizontal(|ui| {
-                let format_label = self.localizer.lookup_single_language("download-format", None)
-                    .unwrap_or_else(|| "Download as:".to_string());
-                ui.label(&format_label);
+                ui.label(self.localizer.lookup_single_language("download-format", None)
+                    .unwrap_or_else(|| "Download as:".to_string()));
                 
                 let mp4_label = self.localizer.lookup_single_language("format-mp4", None)
                     .unwrap_or_else(|| "MP4 (Video)".to_string());
-                ui.radio_value(&mut self.state.format, DownloadFormat::MP4, mp4_label);
-                
                 let mp3_label = self.localizer.lookup_single_language("format-mp3", None)
                     .unwrap_or_else(|| "MP3 (Audio only)".to_string());
+                
+                ui.radio_value(&mut self.state.format, DownloadFormat::MP4, mp4_label);
                 ui.radio_value(&mut self.state.format, DownloadFormat::MP3, mp3_label);
             });
             
-            // URL input
+            ui.add_space(20.0);
+            
+            // Status in a frame
+            egui::Frame::group(ui.style())
+                .fill(egui::Color32::from_rgb(248, 248, 248))
+                .rounding(8.0)
+                .show(ui, |ui| {
+                    ui.vertical(|ui| {
+                        ui.add_space(10.0);
+                        
+                        // Status text
+                        let status_text = if let Some(error) = &self.state.last_error {
+                            egui::RichText::new(format!("Error: {}", error))
+                                .color(egui::Color32::RED)
+                        } else {
+                            egui::RichText::new(&self.state.status)
+                                .color(egui::Color32::DARK_GRAY)
+                        };
+                        ui.label(status_text);
+                        
+                        // Progress bar
+                        if self.state.is_downloading {
+                            ui.add_space(10.0);
+                            ui.add(
+                                egui::ProgressBar::new(self.state.progress as f32 / 100.0)
+                                    .show_percentage()
+                                    .text(format!("{} - ETA: {}", 
+                                        self.state.download_speed,
+                                        self.state.eta
+                                    ))
+                            );
+                        }
+                        
+                        // Output path
+                        if let Some(path) = &self.state.output_path {
+                            ui.add_space(10.0);
+                            ui.label(format!("Saved to: {}", path.display()));
+                        }
+                        
+                        ui.add_space(10.0);
+                    });
+                });
+            
+            // Add flexible space to push buttons to bottom
+            ui.add_space(ui.available_height() - 100.0);
+            
+            // Buttons container at the bottom
             ui.horizontal(|ui| {
-                let url_label = self.localizer.lookup_single_language("url-label", None)
-                    .unwrap_or_else(|| "Video URL:".to_string());
-                ui.label(&url_label);
+                ui.add_space(ui.available_width() / 2.0 - 150.0);
                 
-                let response = ui.text_edit_singleline(&mut self.state.url);
-                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                // Download button
+                let button_text = self.localizer.lookup_single_language("download-button", None)
+                    .unwrap_or_else(|| "Download".to_string());
+                
+                let download_button = egui::Button::new(
+                    egui::RichText::new(button_text)
+                        .size(16.0)
+                        .color(egui::Color32::WHITE)
+                )
+                .min_size(egui::vec2(200.0, 50.0))
+                .frame(true)
+                .fill(egui::Color32::from_rgb(74, 144, 226))
+                .rounding(8.0);
+                
+                let response = ui.add_enabled(!self.state.is_downloading, download_button);
+                if response.clicked() {
                     self.download();
+                }
+                
+                // Add some space between buttons
+                ui.add_space(20.0);
+                
+                // Update button
+                let update_text = self.localizer.lookup_single_language("update-button", None)
+                    .unwrap_or_else(|| "Update yt-dlp".to_string());
+                
+                let update_button = egui::Button::new(
+                    egui::RichText::new(update_text)
+                        .size(14.0)
+                        .color(egui::Color32::WHITE)
+                )
+                .min_size(egui::vec2(120.0, 36.0))
+                .frame(true)
+                .fill(egui::Color32::from_rgb(100, 100, 100))
+                .rounding(6.0);
+                
+                if ui.add_enabled(!self.state.is_downloading, update_button).clicked() {
+                    self.update_ytdlp(ctx);
                 }
             });
             
-            // Add some spacing
+            // Add some space at the bottom
             ui.add_space(10.0);
-            
-            // Get the localized button text
-            let button_text = self.localizer.lookup_single_language("download-button", None)
-                .unwrap_or_else(|| "Download".to_string());
-            
-            // Disable the download button if a download is in progress
-            if ui.add_enabled(!self.state.is_downloading, egui::Button::new(&button_text)).clicked() {
-                self.download();
-            }
-            
-            // Show status and progress
-            ui.add_space(10.0);
-            ui.label(&self.state.status);
-            
-            if self.state.is_downloading {
-                // Show progress bar
-                ui.add(egui::ProgressBar::new(self.state.progress as f32 / 100.0)
-                    .text(format!("{:.1}% - {} - ETA: {}", 
-                        self.state.progress, 
-                        self.state.download_speed,
-                        self.state.eta)));
-            }
-            
-            // Show output path if available
-            if let Some(path) = &self.state.output_path {
-                ui.label(format!("Saved to: {}", path.display()));
-            }
-            
-            // Show error if any
-            if let Some(error) = &self.state.last_error {
-                ui.colored_label(egui::Color32::RED, format!("Error: {}", error));
-            }
         });
     }
+    
+    // This method is now implemented in the YtdlApp implementation
+    // The implementation is moved to the impl YtdlApp block
 }
 
 impl YtdlApp {
@@ -292,15 +448,19 @@ impl YtdlApp {
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([500.0, 200.0])
-            .with_min_inner_size([300.0, 150.0])
+            .with_inner_size([600.0, 500.0])  // Larger initial window size
+            .with_min_inner_size([500.0, 400.0])
             .with_title("YouTube Downloader"),
         ..Default::default()
     };
-    
+
     eframe::run_native(
         "YouTube Downloader",
         options,
-        Box::new(|_cc| Box::new(YtdlApp::new())),
+        Box::new(|cc| {
+            // Set light theme
+            cc.egui_ctx.set_visuals(egui::Visuals::light());
+            Box::new(YtdlApp::new())
+        }),
     )
 }
