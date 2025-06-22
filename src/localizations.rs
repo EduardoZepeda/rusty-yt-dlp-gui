@@ -107,9 +107,7 @@ impl Localizations {
             })
     }
     
-    pub fn language_loader(&self) -> &Self {
-        self
-    }
+
     
     pub fn select(&mut self, lang: &str) -> Result<(), String> {
         // Try exact match first

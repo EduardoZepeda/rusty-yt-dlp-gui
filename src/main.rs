@@ -200,7 +200,7 @@ impl eframe::App for YtdlApp {
                         egui::TextEdit::singleline(&mut self.state.url)
                             .hint_text(self.localizer.lookup_single_language("url-placeholder", None)
                                 .unwrap_or_else(|| "Enter video URL".to_string()))
-                            .text_style(egui::TextStyle::Body)
+                            .font(egui::TextStyle::Body)
                             .font(egui::FontId::proportional(16.0))
                     )
                 }).inner;
