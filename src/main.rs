@@ -143,7 +143,8 @@ impl YtdlApp {
             match output {
                 Ok(output) => {
                     if output.status.success() {
-                        let _ = tx.send((false, "yt-dlp updated successfully".to_string()));
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        let _ = tx.send((false, format!("yt-dlp updated successfully: {}", stdout)));
                     } else {
                         let error_msg = String::from_utf8_lossy(&output.stderr);
                         let _ = tx.send((true, format!("Failed to update yt-dlp: {}", error_msg)));
@@ -164,12 +165,12 @@ impl eframe::App for YtdlApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check for status updates
         if let Some(receiver) = &mut self.status_receiver {
-            if let Ok((is_error, message)) = receiver.try_recv() {
+            while let Ok((is_error, message)) = receiver.try_recv() {
                 self.state.is_downloading = false;
-                self.state.progress = 1.0;
                 
                 if is_error {
-                    self.state.error = Some(message);
+                    self.state.error = Some(message.clone());
+                    self.state.last_error = Some(message);
                 } else {
                     self.state.status = message;
                 }
@@ -360,30 +361,12 @@ impl YtdlApp {
         
         // Clone the necessary data for the thread
         let url_clone = url.clone();
-        
-        // Format-specific arguments
-        let format_args = match self.state.format {
-            DownloadFormat::MP4 => vec![
-                "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-                "--merge-output-format", "mp4",
-            ],
-            DownloadFormat::MP3 => vec![
-                "-x",  // Extract audio
-                "--audio-format", "mp3",
-                "--audio-quality", "0",  // Best quality
-            ],
-        };
-        
-        // Output template
-        let output_template = match self.state.format {
-            DownloadFormat::MP4 => "%(title)s.%(ext)s",
-            DownloadFormat::MP3 => "%(title)s.%(ext)s",
-        };
+        let format = self.state.format;
         
         // Spawn a new thread for the download
         thread::spawn(move || {
-            // Build the command with format-specific arguments
-            let mut command = Command::new(ytdlp_cmd);
+            // Build the command
+            let mut command = std::process::Command::new(ytdlp_cmd);
             
             // Common arguments
             command
@@ -391,45 +374,88 @@ impl YtdlApp {
                 .arg("--no-simulate")
                 .arg("--progress")
                 .arg("--progress-template")
-                .arg("[PROGRESS]%(progress._percent_str)s %(progress.speed)s ETA %(progress.eta)s")
+                .arg("PROGRESS:%(progress._percent_str)s|%(progress.speed)s|%(progress.eta)s")
                 .arg("-o")
-                .arg(output_template);
+                .arg("%(title)s.%(ext)s");
             
             // Add format-specific arguments
-            for arg in format_args {
-                command.arg(arg);
+            match format {
+                DownloadFormat::MP4 => {
+                    command
+                        .arg("-f")
+                        .arg("bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
+                        .arg("--merge-output-format")
+                        .arg("mp4");
+                },
+                DownloadFormat::MP3 => {
+                    command
+                        .arg("-x")
+                        .arg("--audio-format")
+                        .arg("mp3")
+                        .arg("--audio-quality")
+                        .arg("0");
+                }
             }
             
             // Add the URL last
             command.arg(&url_clone);
             
-            // Execute the command
+            // Execute the command and capture the output in real-time
             let output = command
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()
-                .and_then(|child| child.wait_with_output());
+                .and_then(|mut child| {
+                    // Read stderr in a separate thread to avoid deadlocks
+                    let stderr = child.stderr.take().expect("Failed to capture stderr");
+                    let tx_err = tx.clone();
+                    
+                    std::thread::spawn(move || {
+                        use std::io::{BufRead, BufReader};
+                        let reader = BufReader::new(stderr);
+                        
+                        for line in reader.lines() {
+                            if let Ok(line) = line {
+                                if line.starts_with("PROGRESS:") {
+                                    let parts: Vec<&str> = line[9..].split('|').collect();
+                                    if parts.len() >= 3 {
+                                        let percent = parts[0].trim_end_matches('%').parse::<f32>().unwrap_or(0.0);
+                                        let speed = parts[1].to_string();
+                                        let eta = parts[2].to_string();
+                                        
+                                        if let Err(e) = tx_err.send((false, format!("{}% - {} ETA: {}", percent, speed, eta))) {
+                                            eprintln!("Failed to send progress update: {}", e);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    
+                    child.wait_with_output()
+                });
 
             let result = match output {
                 Ok(output) => {
                     if output.status.success() {
                         let stdout = String::from_utf8_lossy(&output.stdout);
-                        if let Some(title) = stdout.lines().find(|line| !line.starts_with("[PROGRESS]")) {
-                            (true, format!("Downloaded: {}", title.trim()))
+                        if let Some(title) = stdout.lines().find(|line| !line.starts_with("PROGRESS:")) {
+                            (false, format!("Downloaded: {}", title.trim()))
                         } else {
-                            (true, "Download completed successfully!".to_string())
+                            (false, "Download completed successfully!".to_string())
                         }
                     } else {
                         let error_msg = String::from_utf8_lossy(&output.stderr);
-                        (false, format!("Download failed: {}", error_msg))
+                        (true, format!("Download failed: {}", error_msg))
                     }
                 }
                 Err(e) => {
-                    (false, format!("Failed to start download: {}", e))
+                    (true, format!("Failed to start download: {}", e))
                 }
             };
             
-            // Send the result back to the main thread
+            // Send the final result back to the main thread
             if let Err(e) = tx.send(result) {
                 eprintln!("Failed to send download result: {}", e);
             }
