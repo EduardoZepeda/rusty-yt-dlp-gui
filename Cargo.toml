@@ -1,0 +1,20 @@
+[package]
+name = "ytdl-gui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = "0.24.1"
+egui = "0.24.1"
+i18n-embed = { version = "0.15.4", features = ["desktop-requester"] }
+anyhow = "1.0.79"
+log = "0.4.20"
+unic-langid = { version = "0.9.4", features = ["macros"] }
+which = "4.4.0"
+
+# For video downloading
+# Note: yt-dlp needs to be installed on the system
+# Install it via your system package manager or pip:
+# pip install -U yt-dlp
+# or
+# sudo apt install yt-dlp
