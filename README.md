@@ -1,6 +1,6 @@
 # rusty-yt-dlp-gui
 
-A lightweight, cross-platform and minimalist GUI application for downloading YouTube videos and audio, built with Rust. ~~Blazing fast, just kidding~~
+A Linux lightweight, minimalist GUI application for downloading YouTube videos and audio, built with Rust. ~~Blazing fast, just kidding~~
 
 ## Motivation
 
