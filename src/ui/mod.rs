@@ -24,7 +24,7 @@ pub fn render_url_input(
         );
 
         egui::Frame::none()
-            .fill(CARD_COLOR)
+            .fill(INPUT_BG)
             .rounding(ROUNDING_FRAME)
             .stroke(Stroke::new(1.0, BORDER_COLOR))
             .show(ui, |ui| {
@@ -36,7 +36,7 @@ pub fn render_url_input(
                                 .lookup_single_language("url-placeholder", None)
                                 .unwrap_or_else(|| "Enter video URL".to_string()),
                         )
-                        .text_color(SECONDARY_TEXT)
+                        .text_color(INPUT_TEXT)
                         .frame(false)
                         .font(egui::TextStyle::Body)
                         .font(egui::FontId::proportional(15.0)),
@@ -67,7 +67,6 @@ pub fn render_format_selector(ui: &mut egui::Ui, state: &mut AppState, localizer
                 .lookup_single_language("format-mp3", None)
                 .unwrap_or_else(|| "MP3 (Audio only)".to_string());
 
-            let is_mp4 = state.format == DownloadFormat::MP4;
 
             // Format selection using radio buttons
             ui.horizontal(|ui| {
@@ -116,7 +115,7 @@ pub fn render_download_dir_selector(
         ui.horizontal(|ui| {
             // Directory path display
             egui::Frame::none()
-                .fill(CARD_COLOR)
+                .fill(INPUT_BG)
                 .rounding(ROUNDING_FRAME)
                 .stroke(Stroke::new(1.0, BORDER_COLOR))
                 .show(ui, |ui| {
@@ -129,7 +128,7 @@ pub fn render_download_dir_selector(
                                     .lookup_single_language("select-directory", None)
                                     .unwrap_or_else(|| "Select download directory".to_string()),
                             )
-                            .text_color(SECONDARY_TEXT)
+                            .text_color(INPUT_TEXT)
                             .font(egui::FontId::proportional(14.0))
                             .frame(false)
                             .margin(egui::vec2(12.0, 0.0)),

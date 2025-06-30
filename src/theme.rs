@@ -6,8 +6,8 @@ pub const PRIMARY_BUTTON_BG: Color32 = Color32::from_rgb(76, 154, 255);  // Vibr
 pub const SECONDARY_BUTTON_BG: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 0);  // Softer blue for secondary actions
 
 // Background & Surface Colors
-pub const BACKGROUND_COLOR: Color32 = Color32::from_rgb(250, 250, 252);  // Off-white background
-pub const CARD_COLOR: Color32 = Color32::from_rgb(255, 255, 255);  // Pure white cards
+pub const WHITE: Color32 = Color32::from_rgb(255, 255, 255);  // Pure white cards
+pub const DARK_GRAY: Color32 = Color32::from_rgb(36, 36, 36);  // Dark gray for primary text
 
 // Text Colors
 pub const BUTTON_MAIN_TEXT: Color32 = Color32::from_rgb(255, 255, 255);  // White text for buttons
@@ -15,6 +15,11 @@ pub const MAIN_TEXT: Color32 = Color32::from_rgb(255,255,255);  // Dark gray for
 pub const SECONDARY_TEXT: Color32 = Color32::from_rgb(138, 138, 143);  // Medium gray for secondary text
 pub const TEXT_ERROR: Color32 = Color32::from_rgb(255, 0, 0);  // Red for error messages
 pub const TEXT_SUCCESS: Color32 = Color32::from_rgb(0, 255, 0);  // Green for success messages
+
+// Input color
+pub const INPUT_BG: Color32 = WHITE;
+pub const INPUT_TEXT: Color32 = DARK_GRAY;
+
 // UI Elements
 pub const BORDER_COLOR: Color32 = Color32::from_rgba_premultiplied(60, 60, 67, 15);  // Subtle border
 

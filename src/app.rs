@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, Stroke};
+use eframe::egui::{self, Stroke};
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use crate::download::{start_download, update_ytdlp};
