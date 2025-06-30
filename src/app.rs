@@ -173,11 +173,14 @@ impl YtdlApp {
             }
 
             let update_button = egui::Button::new(
-                egui::RichText::new("Update yt-dlp")
-                    .size(14.0)
+                egui::RichText::new(self
+                    .localizer
+                    .lookup_single_language("update-ytdlp", None)
+                    .unwrap_or_else(|| "Update yt-dlp".to_string()))
+                    .size(16.0)
                     .color(egui::Color32::WHITE),
             )
-            .min_size(egui::vec2(100.0, 32.0))
+            .min_size(egui::vec2(100.0, 40.0))
             .fill(egui::Color32::from_rgb(76, 175, 80))
             .rounding(6.0);
 

@@ -49,6 +49,7 @@ impl Localizations {
         en.insert("error-ytdlp-not-found", "Error: yt-dlp not found. Please install yt-dlp and make sure it's in your PATH.");
         en.insert("update-success", "yt-dlp updated successfully");
         en.insert("update-failed", "Failed to update yt-dlp");
+        en.insert("update-ytdlp", "Update yt-dlp");
         translations.insert("en-US", en);
         
         // Spanish translations
@@ -71,6 +72,7 @@ impl Localizations {
         es.insert("error-ytdlp-not-found", "Error: No se encontró yt-dlp. Por favor instale yt-dlp y asegúrese de que esté en su PATH.");
         es.insert("update-success", "yt-dlp actualizado correctamente");
         es.insert("update-failed", "Error al actualizar yt-dlp");
+        es.insert("update-ytdlp", "Actualizar yt-dlp");
         translations.insert("es-ES", es);
         
         // Get system language

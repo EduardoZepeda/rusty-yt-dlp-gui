@@ -1,9 +1,7 @@
 use std::fs;
-use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::mpsc::Sender;
 use std::thread;
-use std::env;
 use std::io::Write;
 use reqwest::blocking::get;
 use std::os::unix::fs::PermissionsExt;
