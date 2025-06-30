@@ -1,10 +1,12 @@
 # rusty-yt-dlp-gui
 
-A Linux lightweight, minimalist GUI application for downloading YouTube videos and audio, built with Rust. ~~Blazing fast, just kidding~~
+A Linux lightweight, multilingual, minimalist GUI application for downloading YouTube videos and audio, built with Rust. ~~Blazing fast, just kidding~~
+
+![Rusty GUI YT-DLP wrapper](https://res.cloudinary.com/dwrscezd2/image/upload/v1751322441/coffee-bytes/rusty-yt-dlp-gui_orsijk.webp)
 
 ## Motivation
 
-This app was half-vibe-coded half-coded to test the capabilities of Windsurf browser. Hence you can expect a little bit of chaos here and there, I tried to refactor the code as much as possible to get as close as possible to a more maintainable codebase but since this is a small test project it's not a priority.
+This app was **half-vibe-coded half-coded to test the capabilities of Windsurf browser**. Hence you can expect a little bit of chaos here and there. I tried to refactor the code as much as possible (not really) to get as close as possible to a more maintainable codebase but since this is a small test project it's not a priority.
 
 ## Features
 
