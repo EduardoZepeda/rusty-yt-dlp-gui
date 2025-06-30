@@ -15,8 +15,7 @@ rfd = "0.11.4"
 dirs = "5.0.1"
 
 # For video downloading
-# Note: yt-dlp needs to be installed on the system
-# Install it via your system package manager or pip:
-# pip install -U yt-dlp
+reqwest = { version = "0.11", features = ["blocking", "rustls-tls"] }
+bytes = "1.4.0"
 # or
 # sudo apt install yt-dlp
