@@ -4,6 +4,7 @@ mod app;
 mod download;
 mod localizations;
 mod models;
+mod theme;
 mod ui;
 
 use app::YtdlApp;

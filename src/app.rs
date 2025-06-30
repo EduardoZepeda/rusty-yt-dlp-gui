@@ -1,9 +1,10 @@
+use eframe::egui::{self, Color32, Stroke};
 use std::sync::mpsc::{self, Receiver, Sender};
-use eframe::egui;
 
-use crate::models::AppState;
-use crate::localizations::Localizations;
 use crate::download::{start_download, update_ytdlp};
+use crate::localizations::Localizations;
+use crate::models::AppState;
+use crate::theme::*;
 use crate::ui;
 
 pub struct YtdlApp {
@@ -43,8 +44,16 @@ impl YtdlApp {
         }
 
         if self.state.url.trim().is_empty() {
-            self.state.error = Some("Please enter a URL".to_string());
-            self.state.last_error = Some("No URL provided".to_string());
+            self.state.error = Some(
+                self.localizer
+                    .lookup_single_language("enter-url", None)
+                    .unwrap_or_else(|| "Please enter a URL".to_string()),
+            );
+            self.state.last_error = Some(
+                self.localizer
+                    .lookup_single_language("no-url", None)
+                    .unwrap_or_else(|| "No URL provided".to_string()),
+            );
             return;
         }
 
@@ -88,7 +97,7 @@ impl YtdlApp {
 
     pub fn update_ui(&mut self, ctx: &egui::Context) {
         self.process_status_updates(ctx);
-        
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading(
                 self.localizer
@@ -106,13 +115,13 @@ impl YtdlApp {
             ui.add_space(10.0);
             ui::render_format_selector(ui, &mut self.state, &self.localizer);
             ui.add_space(20.0);
-            
+
             ui::render_download_dir_selector(ui, &mut self.state, &self.localizer);
             ui.add_space(20.0);
-            
+
             ui::render_status(ui, &self.state, &self.localizer);
             ui.add_space(ui.available_height() - 100.0);
-            
+
             self.render_buttons(ui, ctx);
         });
     }
@@ -161,28 +170,31 @@ impl YtdlApp {
 
             let download_button = egui::Button::new(
                 egui::RichText::new(button_text)
-                    .size(16.0)
-                    .color(egui::Color32::WHITE),
+                    .size(BUTTON_FONT_SIZE)
+                    .color(BUTTON_MAIN_TEXT),
             )
-            .min_size(egui::vec2(120.0, 40.0))
-            .fill(egui::Color32::from_rgb(0, 122, 255))
-            .rounding(6.0);
+            .min_size(MIN_SIZE_BUTTON)
+            .fill(PRIMARY_BUTTON_BG)
+            .rounding(ROUNDING_BUTTON)
+            .stroke(Stroke::new(1.0, BORDER_COLOR));
 
             if ui.add(download_button).clicked() {
                 self.start_download(ctx);
             }
 
             let update_button = egui::Button::new(
-                egui::RichText::new(self
-                    .localizer
-                    .lookup_single_language("update-ytdlp", None)
-                    .unwrap_or_else(|| "Update yt-dlp".to_string()))
-                    .size(16.0)
-                    .color(egui::Color32::WHITE),
+                egui::RichText::new(
+                    self.localizer
+                        .lookup_single_language("update-ytdlp", None)
+                        .unwrap_or_else(|| "Update yt-dlp".to_string()),
+                )
+                .size(BUTTON_FONT_SIZE)
+                .color(BUTTON_MAIN_TEXT),
             )
-            .min_size(egui::vec2(100.0, 40.0))
-            .fill(egui::Color32::from_rgb(76, 175, 80))
-            .rounding(6.0);
+            .min_size(MIN_SIZE_BUTTON)
+            .fill(SECONDARY_BUTTON_BG)
+            .rounding(ROUNDING_BUTTON)
+            .stroke(Stroke::new(1.0, BORDER_COLOR));
 
             if ui.add(update_button).clicked() {
                 self.update_ytdlp(ctx);
