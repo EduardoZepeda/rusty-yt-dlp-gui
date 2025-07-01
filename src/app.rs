@@ -129,28 +129,68 @@ impl YtdlApp {
     fn process_status_updates(&mut self, ctx: &egui::Context) {
         if let Some(receiver) = &mut self.status_receiver {
             while let Ok((is_error, message)) = receiver.try_recv() {
-                if message.contains('%') {
-                    if let Some(percent_str) = message.split('%').next() {
-                        if let Ok(percent) = percent_str.trim().parse::<f32>() {
-                            self.state.progress = percent;
-                            let parts: Vec<&str> = message.split_whitespace().collect();
-                            if parts.len() >= 4 && parts[2] == "ETA:" {
-                                self.state.download_speed = parts[1].to_string();
-                                self.state.eta = parts[3].to_string();
+                // Check if this is a progress update (contains percentage or ETA)
+                if !is_error && (message.contains('%') || message.contains("ETA")) {
+                    println!("Processing progress update: {}", message);
+                    
+                    // Try to extract percentage - handle both formats:
+                    // [download]  12.3% of 10.00MiB at  1.23MiB/s ETA 00:07
+                    // [download] 100% of 10.00MiB in 00:05
+                    if let Some(percent_str) = message.split_whitespace()
+                        .find(|s| s.ends_with('%') && !s.starts_with('(')) // Skip things like (100%)
+                        .and_then(|s| s.trim_end_matches('%').parse::<f32>().ok()) {
+                        
+                        self.state.progress = percent_str;
+                        
+                        // Extract download speed and ETA if available
+                        let parts: Vec<&str> = message.split_whitespace().collect();
+                        
+                        // Look for speed (after "at" or "in")
+                        if let Some(at_pos) = parts.iter().position(|&x| x == "at" || x == "in") {
+                            if at_pos + 1 < parts.len() {
+                                self.state.download_speed = parts[at_pos + 1].to_string();
                             }
-                            self.state.status = message.clone();
-                            ctx.request_repaint();
-                            continue;
                         }
+                        
+                        // Look for ETA
+                        if let Some(eta_pos) = parts.iter().position(|&x| x == "ETA") {
+                            if eta_pos + 1 < parts.len() {
+                                self.state.eta = parts[eta_pos + 1].to_string();
+                            }
+                        }
+                        
+                        // Update status with the latest progress
+                        self.state.status = if !self.state.download_speed.is_empty() && !self.state.eta.is_empty() {
+                            format!("Downloading: {:.1}% - {} - ETA: {}", 
+                                percent_str, 
+                                self.state.download_speed, 
+                                self.state.eta
+                            )
+                        } else if !self.state.download_speed.is_empty() {
+                            format!("Downloading: {:.1}% - {}", percent_str, self.state.download_speed)
+                        } else {
+                            format!("Downloading: {:.1}%", percent_str)
+                        };
+                        
+                        println!("Updated progress: {}", self.state.status);
+                        ctx.request_repaint();
+                        continue;
                     }
                 }
 
-                self.state.is_downloading = false;
-
+                // Handle non-progress messages
                 if is_error {
                     self.state.error = Some(message.clone());
                     self.state.last_error = Some(message);
-                } else {
+                    self.state.is_downloading = false;
+                } else if message == "Download complete" {
+                    self.state.status = self.localizer
+                        .lookup_single_language("download-complete", None)
+                        .unwrap_or_else(|| "Download complete".to_string());
+                    self.state.progress = 100.0;
+                    self.state.is_downloading = false;
+                } else if !message.trim().is_empty() {
+                    // Only update status for non-empty messages that aren't progress updates
                     self.state.status = message;
                 }
 

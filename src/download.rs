@@ -85,34 +85,103 @@ pub fn start_download(
             }
         };
 
-        let output = Command::new(&ytdlp_path)
-            .arg("--newline")
-            .arg("--progress")
-            .arg("--no-check-certificate")
-            .arg(if matches!(format, DownloadFormat::MP3) {
-                "-x"
-            } else {
-                "-f"
-            })
-            .arg(if matches!(format, DownloadFormat::MP3) {
-                "--audio-format mp3 --audio-quality 0"
-            } else {
-                "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-            })
-            .arg(&url)
-            .output();
-
-        match output {
-            Ok(output) => {
-                if output.status.success() {
+        let mut cmd = Command::new(&ytdlp_path);
+        
+        cmd.arg("--newline")
+           .arg("--progress")
+           .arg("--no-check-certificate");
+        
+        if matches!(format, DownloadFormat::MP3) {
+            cmd.arg("-x")
+               .arg("--audio-format")
+               .arg("mp3")
+               .arg("--audio-quality")
+               .arg("0");
+        } else {
+            cmd.arg("-f")
+               .arg("bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best");
+        }
+        
+        cmd.arg(&url);
+        
+        // Spawn the command with piped output
+        let mut child = match cmd.stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn() {
+                Ok(child) => child,
+                Err(e) => {
+                    let _ = tx.send((true, format!("Failed to start yt-dlp: {}", e)));
+                    return;
+                }
+            };
+        
+        // Read stdout and stderr in a separate thread
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+        let tx_stdout = tx.clone();
+        let tx_stderr = tx.clone();
+        
+        // Handle stdout (progress updates)
+        let stdout_handle = std::thread::spawn(move || {
+            use std::io::{BufRead, BufReader};
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                match line {
+                    Ok(line) => {
+                        println!("STDOUT: {}", line);
+                        if line.contains("%") || line.contains("ETA") {
+                            // Forward progress updates
+                            if let Err(e) = tx_stdout.send((false, line)) {
+                                println!("Failed to send progress update: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("Error reading from stdout: {}", e);
+                    }
+                }
+            }
+        });
+        
+        // Handle stderr (errors)
+        let stderr_handle = std::thread::spawn(move || {
+            use std::io::{BufRead, BufReader};
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                match line {
+                    Ok(line) => {
+                        let line = line.trim().to_string();
+                        if !line.is_empty() {
+                            println!("STDERR: {}", line);
+                            if let Err(e) = tx_stderr.send((true, line)) {
+                                println!("Failed to send error message: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("Error reading from stderr: {}", e);
+                    }
+                }
+            }
+        });
+        
+        // Wait for the process to complete
+        let status = child.wait();
+        
+        // Wait for the output handlers to finish
+        let _ = stdout_handle.join();
+        let _ = stderr_handle.join();
+        
+        match status {
+            Ok(exit_status) => {
+                if exit_status.success() {
                     let _ = tx.send((false, "Download complete".to_string()));
                 } else {
-                    let error_msg = String::from_utf8_lossy(&output.stderr);
-                    let _ = tx.send((true, error_msg.to_string()));
+                    let _ = tx.send((true, format!("Process exited with: {}", exit_status)));
                 }
             }
             Err(e) => {
-                let _ = tx.send((true, e.to_string()));
+                let _ = tx.send((true, format!("Failed to wait for process: {}", e)));
             }
         }
     })
