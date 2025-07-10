@@ -17,5 +17,6 @@ dirs = "5.0.1"
 # For video downloading
 reqwest = { version = "0.11", features = ["blocking", "rustls-tls"] }
 bytes = "1.4.0"
+arboard = "3.3.0"
 # or
 # sudo apt install yt-dlp

@@ -1,3 +1,4 @@
+use arboard::Clipboard;
 use eframe::egui::{self, Color32, Stroke};
 use rfd::FileDialog;
 use std::path::Path;
@@ -28,7 +29,7 @@ pub fn render_url_input(
             .rounding(ROUNDING_FRAME)
             .stroke(Stroke::new(1.0, BORDER_COLOR))
             .show(ui, |ui| {
-                ui.add_sized(
+                let response = ui.add_sized(
                     [ui.available_width(), 48.0],
                     egui::TextEdit::singleline(&mut state.url)
                         .hint_text(
@@ -38,9 +39,17 @@ pub fn render_url_input(
                         )
                         .text_color(INPUT_TEXT)
                         .frame(false)
-                        .font(egui::TextStyle::Body)
-                        .font(egui::FontId::proportional(15.0)),
-                )
+                        .interactive(true),  // Ensure the field is interactive
+                );
+
+                // Handle right-click paste
+                if response.clicked_by(egui::PointerButton::Secondary) {
+                    if let Some(contents) = arboard::Clipboard::new().ok().and_then(|mut c| c.get_text().ok()) {
+                        state.url = contents;
+                    }
+                }
+
+                response
             })
             .inner
     })

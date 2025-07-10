@@ -108,6 +108,12 @@ pub fn start_download(
            .arg(&download_dir)
            .arg("-o")
            .arg("%(title)s.%(ext)s")
+           .arg("--newline")
+           .arg("--progress")
+           .arg("--console-title")
+           .arg("--no-simulate")
+           .arg("--progress-template")
+           .arg("[download] %(progress._percent_str)s of %(progress._total_bytes_str)s at %(progress._speed_str)s ETA %(progress._eta_str)s")
            .arg(&url);
         
         // Spawn the command with piped output
@@ -135,8 +141,9 @@ pub fn start_download(
                 match line {
                     Ok(line) => {
                         println!("STDOUT: {}", line);
-                        if line.contains("%") || line.contains("ETA") {
-                            // Forward progress updates
+                        // Forward all progress-related lines
+                        if line.starts_with("[download]") || line.contains("ETA") {
+                            // Send the update and immediately request a repaint
                             if let Err(e) = tx_stdout.send((false, line)) {
                                 println!("Failed to send progress update: {}", e);
                             }
@@ -208,7 +215,7 @@ pub fn update_ytdlp(tx: Sender<(bool, String)>) -> thread::JoinHandle<()> {
         // This will download a fresh copy
         match ensure_ytdlp_exists() {
             Ok(_) => {
-                let _ = tx.send((false, "yt-dlp updated successfully".to_string()));
+                let _ = tx.send((false, "yt-dlp updated".to_string()));
             }
             Err(e) => {
                 let _ = tx.send((true, format!("Failed to update yt-dlp: {}", e)));
