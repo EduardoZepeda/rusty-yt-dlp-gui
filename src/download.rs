@@ -74,6 +74,7 @@ fn download_ytdlp(path: &std::path::Path) -> Result<(), String> {
 pub fn start_download(
     url: String,
     format: DownloadFormat,
+    download_dir: String,
     tx: Sender<(bool, String)>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
@@ -102,7 +103,12 @@ pub fn start_download(
                .arg("bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best");
         }
         
-        cmd.arg(&url);
+        // Set output directory and template
+        cmd.arg("-P")
+           .arg(&download_dir)
+           .arg("-o")
+           .arg("%(title)s.%(ext)s")
+           .arg(&url);
         
         // Spawn the command with piped output
         let mut child = match cmd.stdout(std::process::Stdio::piped())

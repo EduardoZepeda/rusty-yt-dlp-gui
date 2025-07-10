@@ -1,4 +1,5 @@
 use eframe::egui::{self, Stroke};
+use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use crate::download::{start_download, update_ytdlp};
@@ -57,6 +58,16 @@ impl YtdlApp {
             return;
         }
 
+        // Ensure download directory exists
+        let download_dir = Path::new(&self.state.download_dir);
+        if !download_dir.exists() {
+            if let Err(e) = std::fs::create_dir_all(download_dir) {
+                self.state.error = Some(format!("Failed to create download directory: {}", e));
+                self.state.last_error = Some("Invalid download directory".to_string());
+                return;
+            }
+        }
+
         self.state.is_downloading = true;
         self.state.progress = 0.0;
         self.state.error = None;
@@ -70,9 +81,10 @@ impl YtdlApp {
 
         let format = self.state.format;
         let url = self.state.url.clone();
+        let download_dir = self.state.download_dir.clone();
         let tx = self.status_sender.clone();
 
-        start_download(url, format, tx);
+        start_download(url, format, download_dir, tx);
         ctx.request_repaint();
     }
 
