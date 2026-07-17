@@ -211,12 +211,31 @@ pub fn render_status(ui: &mut egui::Ui, state: &AppState, localizer: &Localizati
                     };
 
                     // Progress bar with custom styling
-                    let progress_bar = egui::ProgressBar::new(state.progress / 100.0)
+                    let progress = (state.progress / 100.0).clamp(0.0, 1.0);
+                    let progress_bar = egui::ProgressBar::new(progress)
                         .show_percentage()
                         .text(progress_text)
+                        .animate(true)  // Add smooth animation
                         .fill(PRIMARY_COLOR);
 
-                    ui.add(progress_bar);
+                    let response = ui.add(progress_bar);
+                    
+                    // Show tooltip with detailed progress on hover
+                    if response.hovered() {
+                        egui::show_tooltip_at_pointer(
+                            ui.ctx(),
+                            egui::Id::new("progress_tooltip"),
+                            |ui| {
+                                ui.label(format!("Progress: {:.1}%", state.progress));
+                                if !state.download_speed.is_empty() {
+                                    ui.label(format!("Speed: {}", state.download_speed));
+                                }
+                                if !state.eta.is_empty() {
+                                    ui.label(format!("ETA: {}", state.eta));
+                                }
+                            },
+                        );
+                    }
 
                     // Progress text below the bar
                     ui.label(
